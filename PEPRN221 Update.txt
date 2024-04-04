@@ -1,0 +1,625 @@
+/*
+1/ setup project razor page:
+- tạo new item 3 class library BO, DA, RE
+- cài đặt nuGet package
+* Design (cài trong project chính)
+* SQLServer
+* Tools
+* Extensions.Configuration.json
+* Generation code design
+
+2/ scarffold model (trong terminal của business):
+- default project chuyển sang bussiness object
+- dir
+- cd .\BusinessObject
+- dir
+- dotnet ef dbcontext scaffold "server =(local); database = Eyeglasses2024DB;uid=sa;pwd=1234567890;TrustServerCertificate=True;" Microsoft.EntityFrameworkCore.SqlServer --output-dir Models
+
+3/ appsetting.json:
+"ConnectionStrings": {
+    "DefaultConnection": "Server=(local);database=Eyeglasses2024DB;uid=sa;pwd=1234567890;TrustServerCertificate=True"
+  }
+
+4/ DBContext modal (trong Modal, OnConfiguring):
+- if (!optionsBuilder.IsConfigured)
+            {
+                string connectionString;
+                IConfiguration config = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json", true, true).Build();
+                connectionString = config["ConnectionStrings:DefaultConnection"];
+                optionsBuilder.UseSqlServer(connectionString);
+            }
+
+5/ Preference project:
+- project --> Re
+- Repo --> DAO
+- DAO --> BO
+
+6/Viết class DAO của các tables trong file models đã scaffold:
+- class có liên quan đến các ACCOUNT:
+
+private static StoreAccountDAO instance = null;
+public static readonly object instanceLock = new object();
+Eyeglasses2024DbContext _dbContext = new Eyeglasses2024DbContext();
+
+public StoreAccountDAO() { }
+public static StoreAccountDAO Instance
+{
+    get
+    {
+        lock (instanceLock)
+        {
+            if (instance == null)
+            {
+                instance = new StoreAccountDAO();
+            }
+            return instance;
+        }
+    }
+}
+
+public async Task<StoreAccount> Login(string email, string password)
+{
+    try
+    {
+        var account = await _dbContext.StoreAccounts.FirstOrDefaultAsync(e => e.EmailAddress == email && e.AccountPassword == password);
+        if (account != null)
+        {
+            return account;
+        }
+        return null;
+    }
+    catch (Exception ex)
+    {
+        throw new Exception(ex.Message);
+    }
+}
+
+- class khác:
+
+private static EyeglassDAO instance = null;
+private static readonly object instanceLock = new object();
+Eyeglasses2024DbContext _dbContext = new Eyeglasses2024DbContext();
+
+public EyeglassDAO() { }
+
+public static EyeglassDAO Instance
+{
+    get
+    {
+        lock (instanceLock)
+        {
+            if (instance == null)
+            {
+                instance = new EyeglassDAO();
+            }
+            return instance;
+        }
+    }
+}
+
+public async Task<List<Eyeglass>> GetEyeglassesList()
+{
+    try
+    {
+        List<Eyeglass> eyeglasses;
+        eyeglasses = await _dbContext.Eyeglasses.Include(e => e.LensType).OrderByDescending(e => e.EyeglassesId).ToListAsync();
+        if(eyeglasses != null)
+        {
+            return eyeglasses;
+        }
+        return null;
+    }
+    catch(Exception ex)
+    {
+        throw new Exception(ex.Message);
+    }
+}
+
+public async Task<Eyeglass> GetEyeglassById(int id)
+{
+    try
+    {
+        var eyeGlass = await _dbContext.Eyeglasses.Include(c => c.LensType).FirstOrDefaultAsync(c => c.EyeglassesId == id);
+        if(eyeGlass != null)
+        {
+            return eyeGlass;
+        }
+        return null;
+    }
+    catch (Exception ex)
+    {
+        throw new Exception(ex.Message);
+    }
+}
+
+public async Task Delete(Eyeglass eyeglass)
+{
+    try
+    {
+        _dbContext.Eyeglasses.Remove(eyeglass);
+        await _dbContext.SaveChangesAsync();
+    }
+    catch (Exception ex)
+    {
+        throw new Exception(ex.Message);
+    }
+}
+
+public async Task Add(Eyeglass eyeglass)
+{
+    try
+    {
+        _dbContext.Eyeglasses.Add(eyeglass);
+        await _dbContext.SaveChangesAsync();
+    }
+    catch (Exception e)
+    {
+        throw new Exception(e.Message);
+    }
+}
+
+public async Task Update(Eyeglass eyeglass)
+{
+    try
+    {
+        _dbContext.ChangeTracker.Clear();
+        _dbContext.Entry<Eyeglass>(eyeglass).State = EntityState.Modified;
+        await _dbContext.SaveChangesAsync();
+    }
+    catch (Exception ex)
+    {
+        throw new Exception(ex.Message);
+    }
+}
+
+7/Viết 2 class repo và interface repo cho các tables:
+- class interface repo:
+public interface IStoreAccountRepository
+{
+    Task<StoreAccount> Login(string email, string password);
+}
+- class repo:
+public class StoreAccountRepository : IStoreAccountRepository
+{
+    public Task<StoreAccount> Login(string email, string password) => StoreAccountDAO.Instance.Login(email, password);
+}
+
+8/ Program.cs (.net 6.0, 7.0):
+
+// Add services to the container.
+builder.Services.AddRazorPages();
+
+builder.Services.AddDistributedMemoryCache();
+
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromSeconds(30);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+});
+
+// Add dependency injection
+builder.Services.AddScoped<IStoreAccountRepository, StoreAccountRepository>();
+builder.Services.AddScoped<IEyeglassRepository, EyeglassRepository>();
+builder.Services.AddDbContext<Eyeglasses2024DbContext>(options =>
+{
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+});
+
+var app = builder.Build();
+
+- Add rồi thì use --> kéo xuống cuối 
+app.UseSession(); (LUÔN NẰM Ở TRC APP.RUN())
+
+9/ CRUD razor page:
+- tạo folder dựa theo tên của các class trong models (CÓ S) trừ class có liên quan đến các account
+=> 
+
+10/ Login page:
+- lấy index.cshtml làm trang login mặc định khi build project
+
+<h2>Please login in here</h2>
+<p>Enter your details below</p>
+
+@if (Model.Msg != null)
+{
+    <p style="color: red">@Model.Msg</p>
+}
+<form method="post" asp-page="LoginPage">
+    <div>
+        <label asp-for="@Model.Email"></label>
+        <input style="margin-left: 35px;" asp-for="@Model.Email" type="email" required />
+    </div>
+    <div>
+        <label asp-for="@Model.Password"></label>
+        <input style="margin-left: 7px;" asp-for="@Model.Password" type="password" required />
+    </div>
+    <input type="submit" class="btn btn-primary" value="Login" />
+</form>
+
+- index.cshtml.cs:
+
+private readonly ILogger<IndexModel> _logger;
+private readonly IStoreAccountRepository _storeAccountRepository; 
+
+public IndexModel(ILogger<IndexModel> logger, IStoreAccountRepository storeAccountRepository)
+{
+    _logger = logger;
+    _storeAccountRepository = storeAccountRepository;
+}
+
+[BindProperty]
+public string Email { get; set; }
+[BindProperty]
+public string Password { get; set; }
+public string Msg { get; set; }
+
+public void OnGet()
+{
+
+}
+
+public async Task<IActionResult> OnPostAsync()
+{
+    var account = await _storeAccountRepository.Login(Email, Password);
+    if (account != null)
+    {
+        if(account.Role == 1)
+        {
+            HttpContext.Session.SetString("Email", Email);
+            HttpContext.Session.SetString("Role", account.Role.ToString());
+            return RedirectToPage("/EyeglassPages/Index");
+        }
+        if (account.Role == 2)
+        {
+            HttpContext.Session.SetString("Email", Email);
+            HttpContext.Session.SetString("Role", account.Role.ToString());
+            return RedirectToPage("/EyeglassPages/Staff");
+        }
+        else
+        {
+            Msg = "You are not alow to access this page!";
+            return Page();
+        }
+    }
+    else
+    {
+        Msg = "Your email or password is wrong!!!";
+        return Page();
+    }
+    return Page();
+}
+
+public IActionResult OnGetLogout()
+{
+    HttpContext.Session.Remove("Email");
+    HttpContext.Session.Remove("Role");
+    return RedirectToPage("./Index");
+}
+
+10/ Layout.cshtml:
+- dòng 24 class Index Home
+@if (Context.Session.GetString("Role") == "1") //admin
+{
+    <li class="nav-item">
+        <a class="nav-link text-dark" asp-area="" asp-page="/Index" asp-page-handler="Logout">Logout</a>
+    </li>
+}
+@if (Context.Session.GetString("Role") == "2") //staff
+{
+    <li class="nav-item">
+        <a class="nav-link text-dark" asp-area="" asp-page="/Index" asp-page-handler="Logout">Logout</a>
+    </li>
+}
+
+11/ Index.cshtml của class tạo bởi crud razor page:
+- phân quyền login ở all class crud:
+* .cshtml:
+@if (Model.Role == "1") //admin hoặc role == 2 //staff tùy theo db đề cho
+{
+}
+else
+{
+    <h3>You are not allow access this page! Please log in!</h3>
+    <a asp-page="/Index">Login</a>
+}
+
+* Index.cshtml.cs:
+private readonly IEyeglassRepository _eyeglassRepository;
+
+public IndexModel(IEyeglassRepository eyeglassRepository)
+{
+    _eyeglassRepository = eyeglassRepository;
+}
+public string Email { get; set; }
+public string Role { get; set; }
+public string Msg { get; set; }
+public IList<Eyeglass> Eyeglass { get; set; }
+
+public async Task OnGetAsync()
+{
+    Email = HttpContext.Session.GetString("Email");
+    Role = HttpContext.Session.GetString("Role");
+
+    Eyeglass = await _eyeglassRepository.GetEyeglassesList();
+
+    if (Eyeglass == null)
+    {
+        Msg = "Not found any eyeglass!";
+    }
+}
+
+public IActionResult OnGetLogout()
+{
+    HttpContext.Session.Remove("Email");
+    HttpContext.Session.Remove("Role");
+    return RedirectToPage("./Index");
+}
+
+* Detail.cshtml.cs:
+- @if (Model.Role == "1") //admin hoặc role == 2 //staff tùy theo db đề cho
+{
+}
+else
+{
+    <h3>You are not allow access this page! Please log in!</h3>
+    <a asp-page="/Index">Login</a>
+}
+
+- private readonly IEyeglassRepository _eyeglassRepository;
+
+public DetailsModel(IEyeglassRepository eyeglassRepository)
+{
+    _eyeglassRepository = eyeglassRepository;
+}
+
+public Eyeglass Eyeglass { get; set; } = default!;
+public string Email { get; set; }
+public string Role { get; set; }
+
+public async Task<IActionResult> OnGetAsync(int id)
+{
+    Email = HttpContext.Session.GetString("Email");
+    Role = HttpContext.Session.GetString("Role");
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    Eyeglass = await _eyeglassRepository.GetEyeglassById(id);
+
+    if (Eyeglass == null)
+    {
+        return NotFound();
+    }
+    return Page();
+}
+
+*tạo 1 trang staff để check login quyền staff:
+staff.cshtml:
+@if (Model.Role == "2")
+{
+    <h1>Index</h1>
+
+    
+    <table class="table">
+        <thead>
+            <tr>
+                <th>
+                    @Html.DisplayNameFor(model => model.Eyeglass[0].EyeglassesName)
+                </th>
+                
+                <th>
+                    @Html.DisplayNameFor(model => model.Eyeglass[0].LensType)
+                </th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.Eyeglass)
+            {
+                <tr>
+                    <td>
+                        @Html.DisplayFor(modelItem => item.EyeglassesName)
+                    </td>
+                    
+                    <td>
+                        @Html.DisplayFor(modelItem => item.LensType.LensTypeId)
+                    </td>
+                    <td>
+                        <a asp-page="./StaffDetail" asp-route-id="@item.EyeglassesId">Details</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <h3>You are not allow access this page! Please log in!</h3>
+    <a asp-page="/Index">Login</a>
+}
+
+staff.cshtml.cs:
+private readonly IEyeglassRepository _eyeglassRepository;
+
+public StaffModel(IEyeglassRepository eyeglassRepository)
+{
+    _eyeglassRepository = eyeglassRepository;
+}
+public string Email { get; set; }
+public string Role { get; set; }
+public string Msg { get; set; }
+public IList<Eyeglass> Eyeglass { get; set; }
+
+public async Task OnGetAsync()
+{
+    Email = HttpContext.Session.GetString("Email");
+    Role = HttpContext.Session.GetString("Role");
+
+    Eyeglass = await _eyeglassRepository.GetEyeglassesList();
+
+    if (Eyeglass == null)
+    {
+        Msg = "Not found any eyeglass!";
+    }
+}
+
+public IActionResult OnGetLogout()
+{
+    HttpContext.Session.Remove("Email");
+    HttpContext.Session.Remove("Role");
+    return RedirectToPage("./Index");
+}
+
+*tạo 1 trang detail cho staff:
+StaffDetail.cshtml: check role = 2
+
+@if (Model.Role == "2")
+{
+    <h1>Details</h1>
+
+    <div>
+        <h4>Eyeglass</h4>
+        <hr />
+        <dl class="row">
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.EyeglassesName)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.EyeglassesName)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.EyeglassesDescription)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.EyeglassesDescription)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.FrameColor)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.FrameColor)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.Price)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.Price)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.Quantity)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.Quantity)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.CreatedDate)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.CreatedDate)
+            </dd>
+            <dt class="col-sm-2">
+                @Html.DisplayNameFor(model => model.Eyeglass.LensType)
+            </dt>
+            <dd class="col-sm-10">
+                @Html.DisplayFor(model => model.Eyeglass.LensType.LensTypeId)
+            </dd>
+        </dl>
+    </div>
+    <div>
+        <a asp-page="./Staff">Back to List</a>
+    </div>
+}
+else
+{
+    <h3>You are not allow access this page! Please log in!</h3>
+    <a asp-page="/Index">Login</a>
+}
+
+StaffDetail.cshtml.cs:
+
+public class StaffDetailModel : PageModel
+{
+    private readonly IEyeglassRepository _eyeglassRepository;
+
+    public StaffDetailModel(IEyeglassRepository eyeglassRepository)
+    {
+        _eyeglassRepository = eyeglassRepository;
+    }
+
+    public Eyeglass Eyeglass { get; set; } = default!;
+    public string Email { get; set; }
+    public string Role { get; set; }
+
+    public async Task<IActionResult> OnGetAsync(int id)
+    {
+        Email = HttpContext.Session.GetString("Email");
+        Role = HttpContext.Session.GetString("Role");
+        if (id == null)
+        {
+            return NotFound();
+        }
+
+        Eyeglass = await _eyeglassRepository.GetEyeglassById(id);
+
+        if (Eyeglass == null)
+        {
+            return NotFound();
+        }
+        return Page();
+    }
+}
+
+* Delete.cshtml.cs:
+
+private readonly IEyeglassRepository _eyeglassRepository;
+
+public DeleteModel(IEyeglassRepository eyeglassRepository)
+{
+    _eyeglassRepository = eyeglassRepository;
+}
+
+[BindProperty]
+public Eyeglass Eyeglass { get; set; } = default!;
+public string Email { get; set; }
+public string Role { get; set; }
+
+public async Task<IActionResult> OnGetAsync(int id)
+{
+    Email = HttpContext.Session.GetString("Email");
+    Role = HttpContext.Session.GetString("Role");
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    Eyeglass = await _eyeglassRepository.GetEyeglassById(id);
+
+    if (Eyeglass == null)
+    {
+        return NotFound();
+    }
+    return Page();
+}
+
+public async Task<IActionResult> OnPostAsync(int id)
+{
+    Email = HttpContext.Session.GetString("Email");
+    Role = HttpContext.Session.GetString("Role");
+    if (id == null)
+    {
+        return NotFound();
+    }
+    Eyeglass = await _eyeglassRepository.GetEyeglassById(id);
+
+    if (Eyeglass != null)
+    {
+        await _eyeglassRepository.Delete(Eyeglass);
+    }
+
+    return RedirectToPage("./Index");
+}
+
+//nếu ko làm đc eidt vs create thì đừng để nó hiện trên app
+*/
